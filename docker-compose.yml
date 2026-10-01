@@ -1,0 +1,35 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      EKH_APP_NAME: ${EKH_APP_NAME:-Engineering Knowledge Hub}
+      EKH_ENVIRONMENT: ${EKH_ENVIRONMENT:-development}
+      EKH_DEBUG: ${EKH_DEBUG:-false}
+      EKH_LOG_LEVEL: ${EKH_LOG_LEVEL:-INFO}
+      EKH_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ekh}:${POSTGRES_PASSWORD:-ekh}@db:5432/${POSTGRES_DB:-ekh}
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ekh}
+      POSTGRES_USER: ${POSTGRES_USER:-ekh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ekh}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
