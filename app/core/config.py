@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import PositiveInt, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,12 +13,24 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     database_url: str = "postgresql+asyncpg://ekh:ekh@localhost:5432/ekh"
+    jwt_secret: SecretStr
+    access_token_expire_minutes: PositiveInt = 15
+    refresh_token_expire_days: PositiveInt = 7
+    jwt_issuer: str = "engineering-knowledge-hub"
+    jwt_audience: str = "engineering-knowledge-hub-api"
 
     @field_validator("database_url")
     @classmethod
     def require_async_postgresql_url(cls, value: str) -> str:
         if not value.startswith("postgresql+asyncpg://"):
             raise ValueError("database_url must use the postgresql+asyncpg driver")
+        return value
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def require_strong_jwt_secret(cls, value: SecretStr) -> SecretStr:
+        if len(value.get_secret_value()) < 32:
+            raise ValueError("jwt_secret must contain at least 32 characters")
         return value
 
     model_config = SettingsConfigDict(

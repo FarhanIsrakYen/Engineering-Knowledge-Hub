@@ -14,11 +14,13 @@ class ApplicationError(Exception):
         *,
         code: str = "application_error",
         status_code: int = 400,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
         self.code = code
         self.status_code = status_code
+        self.headers = headers
 
 
 async def application_error_handler(
@@ -27,6 +29,7 @@ async def application_error_handler(
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": {"code": exc.code, "message": exc.message}},
+        headers=exc.headers,
     )
 
 
@@ -62,4 +65,3 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ApplicationError, application_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RequestValidationError, validation_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, unexpected_error_handler)
-

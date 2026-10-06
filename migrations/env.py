@@ -5,6 +5,8 @@ from alembic import context
 from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+# Model imports register their tables on Base.metadata for Alembic autogeneration.
+import app.models
 from app.core.config import get_settings
 from app.db.base import Base
 
@@ -61,4 +63,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run(run_migrations_online())
-
