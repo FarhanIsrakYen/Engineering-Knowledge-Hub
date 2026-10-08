@@ -10,10 +10,16 @@ from app.db.session import get_db_session
 from app.models.user import User
 from app.services.auth import get_user_for_token
 from app.services.tenancy import (
+    DocumentContext,
     OrganizationContext,
+    WorkspaceContext,
+    require_document_delete_role,
     require_management_role,
+    resolve_document_context,
     resolve_organization_context,
+    resolve_workspace_context,
 )
+from app.storage import ObjectStorage
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -48,3 +54,29 @@ async def get_managed_organization_context(
     context: Annotated[OrganizationContext, Depends(get_organization_context)],
 ) -> OrganizationContext:
     return require_management_role(context)
+
+
+async def get_workspace_context(
+    workspace_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> WorkspaceContext:
+    return await resolve_workspace_context(session, workspace_id, user.id)
+
+
+async def get_document_context(
+    document_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> DocumentContext:
+    return await resolve_document_context(session, document_id, user.id)
+
+
+async def get_deletable_document_context(
+    context: Annotated[DocumentContext, Depends(get_document_context)],
+) -> DocumentContext:
+    return require_document_delete_role(context)
+
+
+def get_object_storage(request: Request) -> ObjectStorage:
+    return request.app.state.object_storage

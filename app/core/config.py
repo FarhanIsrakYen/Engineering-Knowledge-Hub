@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     refresh_token_expire_days: PositiveInt = 7
     jwt_issuer: str = "engineering-knowledge-hub"
     jwt_audience: str = "engineering-knowledge-hub-api"
+    object_storage_endpoint_url: str = "http://localhost:9000"
+    object_storage_access_key: str = "minioadmin"
+    object_storage_secret_key: SecretStr = SecretStr("minioadmin")
+    object_storage_bucket: str = "engineering-knowledge-hub"
+    object_storage_region: str = "us-east-1"
+    object_storage_auto_create_bucket: bool = False
+    document_max_upload_bytes: PositiveInt = 25 * 1024 * 1024
 
     @field_validator("database_url")
     @classmethod

@@ -1,11 +1,11 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
 from app.schemas.health import HealthResponse, ReadinessResponse
-from app.services.readiness import verify_database_connection
+from app.services.readiness import verify_database_connection, verify_object_storage
 
 router = APIRouter(tags=["health"])
 
@@ -17,7 +17,12 @@ async def health_check() -> HealthResponse:
 
 @router.get("/ready", response_model=ReadinessResponse)
 async def readiness_check(
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> ReadinessResponse:
     await verify_database_connection(session)
-    return ReadinessResponse(status="ready", checks={"database": "ok"})
+    await verify_object_storage(request.app.state.object_storage)
+    return ReadinessResponse(
+        status="ready",
+        checks={"database": "ok", "object_storage": "ok"},
+    )
