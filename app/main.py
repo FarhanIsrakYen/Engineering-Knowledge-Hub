@@ -10,7 +10,10 @@ from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.db.session import create_database_engine, create_session_factory
+from app.embeddings import EmbeddingProvider, FastEmbedEmbeddingProvider
+from app.ingestion.queue import CeleryIngestionQueue, IngestionQueue
 from app.storage import ObjectStorage, S3ObjectStorage
+from app.vector import QdrantVectorStore, VectorStore
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +21,9 @@ logger = logging.getLogger(__name__)
 def create_app(
     settings: Settings | None = None,
     object_storage: ObjectStorage | None = None,
+    ingestion_queue: IngestionQueue | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
+    vector_store: VectorStore | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     configure_logging(app_settings.log_level)
@@ -32,20 +38,54 @@ def create_app(
             bucket=app_settings.object_storage_bucket,
             region=app_settings.object_storage_region,
         )
+        queue = ingestion_queue or CeleryIngestionQueue(app_settings.redis_url)
+        embedder = embedding_provider or FastEmbedEmbeddingProvider(
+            app_settings.embedding_model,
+            app_settings.embedding_dimensions,
+            app_settings.embedding_cache_dir,
+        )
+        vectors = vector_store or QdrantVectorStore(
+            url=app_settings.qdrant_url,
+            api_key=(
+                app_settings.qdrant_api_key.get_secret_value()
+                if app_settings.qdrant_api_key is not None
+                else None
+            ),
+            collection=app_settings.qdrant_collection,
+            embedding_model=app_settings.embedding_model,
+        )
         application.state.db_engine = engine
         application.state.db_session_factory = create_session_factory(engine)
         application.state.object_storage = storage
-        if app_settings.object_storage_auto_create_bucket:
-            await storage.ensure_bucket()
-        logger.info(
-            "Application started",
-            extra={"environment": app_settings.environment},
-        )
+        application.state.ingestion_queue = queue
+        application.state.embedding_provider = embedder
+        application.state.vector_store = vectors
         try:
+            if app_settings.object_storage_auto_create_bucket:
+                await storage.ensure_bucket()
+            if app_settings.qdrant_auto_initialize:
+                await vectors.ensure_collection(
+                    app_settings.embedding_dimensions
+                )
+            logger.info(
+                "Application started",
+                extra={"environment": app_settings.environment},
+            )
             yield
         finally:
-            await storage.close()
-            await engine.dispose()
+            try:
+                await embedder.close()
+            finally:
+                try:
+                    await vectors.close()
+                finally:
+                    try:
+                        await queue.close()
+                    finally:
+                        try:
+                            await storage.close()
+                        finally:
+                            await engine.dispose()
             logger.info("Application stopped")
 
     application = FastAPI(

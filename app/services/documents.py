@@ -10,10 +10,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ApplicationError
+from app.ingestion.queue import IngestionQueue, IngestionQueueError
 from app.models.document import Document
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.storage import ObjectStorage, ObjectStorageError
+from app.vector import VectorStore, VectorStoreError
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +107,7 @@ async def validate_upload(
 async def create_document(
     session: AsyncSession,
     storage: ObjectStorage,
+    ingestion_queue: IngestionQueue,
     workspace: Workspace,
     user: User,
     upload: UploadFile,
@@ -156,6 +159,17 @@ async def create_document(
         ) from exc
 
     await session.refresh(document)
+    try:
+        await ingestion_queue.enqueue(document.id)
+    except IngestionQueueError as exc:
+        document.status = "failed"
+        document.failure_reason = "Document ingestion could not be queued"
+        await session.commit()
+        raise ApplicationError(
+            "Document ingestion could not be queued",
+            code="ingestion_queue_unavailable",
+            status_code=503,
+        ) from exc
     return document
 
 
@@ -174,8 +188,17 @@ async def list_workspace_documents(
 async def delete_document(
     session: AsyncSession,
     storage: ObjectStorage,
+    vector_store: VectorStore,
     document: Document,
 ) -> None:
+    try:
+        await vector_store.delete_document_vectors(document.id)
+    except VectorStoreError as exc:
+        raise ApplicationError(
+            "Vector store is unavailable",
+            code="vector_store_unavailable",
+            status_code=503,
+        ) from exc
     try:
         await storage.delete_file(document.storage_key)
     except ObjectStorageError as exc:

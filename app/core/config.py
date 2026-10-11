@@ -1,7 +1,13 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import PositiveInt, SecretStr, field_validator
+from pydantic import (
+    NonNegativeInt,
+    PositiveInt,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +31,16 @@ class Settings(BaseSettings):
     object_storage_region: str = "us-east-1"
     object_storage_auto_create_bucket: bool = False
     document_max_upload_bytes: PositiveInt = 25 * 1024 * 1024
+    redis_url: str = "redis://localhost:6379/0"
+    document_chunk_size: PositiveInt = 1200
+    document_chunk_overlap: NonNegativeInt = 150
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    embedding_dimensions: PositiveInt = 384
+    embedding_cache_dir: str | None = None
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: SecretStr | None = None
+    qdrant_collection: str = "document_chunks_v1"
+    qdrant_auto_initialize: bool = False
 
     @field_validator("database_url")
     @classmethod
@@ -39,6 +55,35 @@ class Settings(BaseSettings):
         if len(value.get_secret_value()) < 32:
             raise ValueError("jwt_secret must contain at least 32 characters")
         return value
+
+    @field_validator("redis_url")
+    @classmethod
+    def require_redis_url(cls, value: str) -> str:
+        if not value.startswith(("redis://", "rediss://")):
+            raise ValueError("redis_url must use the redis or rediss scheme")
+        return value
+
+    @field_validator("embedding_model", "qdrant_collection")
+    @classmethod
+    def require_nonempty_vector_setting(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("vector configuration values cannot be empty")
+        return value
+
+    @field_validator("qdrant_url")
+    @classmethod
+    def require_qdrant_url(cls, value: str) -> str:
+        if not value.startswith(("http://", "https://")):
+            raise ValueError("qdrant_url must use the http or https scheme")
+        return value
+
+    @model_validator(mode="after")
+    def validate_chunking_settings(self) -> "Settings":
+        if self.document_chunk_overlap >= self.document_chunk_size:
+            raise ValueError(
+                "document_chunk_overlap must be smaller than document_chunk_size"
+            )
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",

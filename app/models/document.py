@@ -7,13 +7,14 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
     Uuid,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -63,3 +64,33 @@ class Document(Base):
         onupdate=func.now(),
     )
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chunks: Mapped[list["DocumentChunk"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        CheckConstraint(
+            "chunk_index >= 0",
+            name="ck_document_chunks_index_nonnegative",
+        ),
+        CheckConstraint(
+            "page_number IS NULL OR page_number > 0",
+            name="ck_document_chunks_page_positive",
+        ),
+    )
+
+    document_id: Mapped[UUID] = mapped_column(
+        Uuid,
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, primary_key=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    section_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    document: Mapped[Document] = relationship(back_populates="chunks")

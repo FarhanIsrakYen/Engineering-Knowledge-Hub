@@ -7,10 +7,13 @@ from app.api.dependencies import (
     get_current_user,
     get_deletable_document_context,
     get_document_context,
+    get_ingestion_queue,
     get_object_storage,
+    get_vector_store,
     get_workspace_context,
 )
 from app.db.session import get_db_session
+from app.ingestion.queue import IngestionQueue
 from app.models.user import User
 from app.schemas.document import DocumentResponse
 from app.services.documents import (
@@ -20,6 +23,7 @@ from app.services.documents import (
 )
 from app.services.tenancy import DocumentContext, WorkspaceContext
 from app.storage import ObjectStorage
+from app.vector import VectorStore
 
 router = APIRouter(tags=["documents"])
 
@@ -36,10 +40,12 @@ async def upload_document(
     user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     storage: Annotated[ObjectStorage, Depends(get_object_storage)],
+    ingestion_queue: Annotated[IngestionQueue, Depends(get_ingestion_queue)],
 ) -> DocumentResponse:
     document = await create_document(
         session,
         storage,
+        ingestion_queue,
         context.workspace,
         user,
         file,
@@ -78,6 +84,7 @@ async def remove_document(
     ],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     storage: Annotated[ObjectStorage, Depends(get_object_storage)],
+    vector_store: Annotated[VectorStore, Depends(get_vector_store)],
 ) -> Response:
-    await delete_document(session, storage, context.document)
+    await delete_document(session, storage, vector_store, context.document)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

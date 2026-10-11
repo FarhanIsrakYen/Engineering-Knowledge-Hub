@@ -4,9 +4,9 @@ __pycache__/
 .env
 .venv/
 .pytest_cache/
+.cache/
 .coverage
 htmlcov/
 .idea/
 .vscode/
 .DS_Store
-

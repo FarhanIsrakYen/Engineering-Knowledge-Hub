@@ -6,6 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN addgroup --system app && adduser --system --ingroup app app
+RUN mkdir -p /model-cache && chown app:app /model-cache
 
 COPY pyproject.toml ./
 COPY app ./app

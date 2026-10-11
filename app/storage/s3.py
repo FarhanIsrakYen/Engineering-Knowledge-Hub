@@ -1,4 +1,5 @@
 import asyncio
+from io import BytesIO
 from typing import Any, BinaryIO
 
 import boto3
@@ -81,6 +82,19 @@ class S3ObjectStorage:
             )
         except (BotoCoreError, ClientError, OSError) as exc:
             raise ObjectStorageError("Object deletion failed") from exc
+
+    async def download_file(self, storage_key: str) -> bytes:
+        destination = BytesIO()
+        try:
+            await asyncio.to_thread(
+                self._client.download_fileobj,
+                self._bucket,
+                storage_key,
+                destination,
+            )
+        except (BotoCoreError, ClientError, OSError) as exc:
+            raise ObjectStorageError("Object download failed") from exc
+        return destination.getvalue()
 
     async def is_available(self) -> bool:
         try:

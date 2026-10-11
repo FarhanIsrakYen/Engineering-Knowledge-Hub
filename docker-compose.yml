@@ -8,6 +8,10 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
     environment:
       EKH_APP_NAME: ${EKH_APP_NAME:-Engineering Knowledge Hub}
       EKH_ENVIRONMENT: ${EKH_ENVIRONMENT:-development}
@@ -24,6 +28,55 @@ services:
       EKH_OBJECT_STORAGE_REGION: ${EKH_OBJECT_STORAGE_REGION:-us-east-1}
       EKH_OBJECT_STORAGE_AUTO_CREATE_BUCKET: "true"
       EKH_DOCUMENT_MAX_UPLOAD_BYTES: ${EKH_DOCUMENT_MAX_UPLOAD_BYTES:-26214400}
+      EKH_REDIS_URL: redis://redis:6379/0
+      EKH_DOCUMENT_CHUNK_SIZE: ${EKH_DOCUMENT_CHUNK_SIZE:-1200}
+      EKH_DOCUMENT_CHUNK_OVERLAP: ${EKH_DOCUMENT_CHUNK_OVERLAP:-150}
+      EKH_EMBEDDING_MODEL: ${EKH_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      EKH_EMBEDDING_DIMENSIONS: ${EKH_EMBEDDING_DIMENSIONS:-384}
+      EKH_EMBEDDING_CACHE_DIR: /model-cache
+      EKH_QDRANT_URL: http://qdrant:6333
+      EKH_QDRANT_COLLECTION: ${EKH_QDRANT_COLLECTION:-document_chunks_v1}
+      EKH_QDRANT_AUTO_INITIALIZE: "true"
+      HF_HOME: /model-cache/huggingface
+      HF_HUB_DISABLE_XET: "1"
+    volumes:
+      - embedding_models:/model-cache
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: celery -A app.worker.celery_app:celery_app worker --loglevel=INFO --concurrency=2
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      EKH_ENVIRONMENT: ${EKH_ENVIRONMENT:-development}
+      EKH_LOG_LEVEL: ${EKH_LOG_LEVEL:-INFO}
+      EKH_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ekh}:${POSTGRES_PASSWORD:-ekh}@db:5432/${POSTGRES_DB:-ekh}
+      EKH_JWT_SECRET: ${EKH_JWT_SECRET:?EKH_JWT_SECRET must be set}
+      EKH_OBJECT_STORAGE_ENDPOINT_URL: http://minio:9000
+      EKH_OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      EKH_OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      EKH_OBJECT_STORAGE_BUCKET: ${MINIO_BUCKET:-engineering-knowledge-hub}
+      EKH_OBJECT_STORAGE_REGION: ${EKH_OBJECT_STORAGE_REGION:-us-east-1}
+      EKH_REDIS_URL: redis://redis:6379/0
+      EKH_DOCUMENT_CHUNK_SIZE: ${EKH_DOCUMENT_CHUNK_SIZE:-1200}
+      EKH_DOCUMENT_CHUNK_OVERLAP: ${EKH_DOCUMENT_CHUNK_OVERLAP:-150}
+      EKH_EMBEDDING_MODEL: ${EKH_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
+      EKH_EMBEDDING_DIMENSIONS: ${EKH_EMBEDDING_DIMENSIONS:-384}
+      EKH_EMBEDDING_CACHE_DIR: /model-cache
+      EKH_QDRANT_URL: http://qdrant:6333
+      EKH_QDRANT_COLLECTION: ${EKH_QDRANT_COLLECTION:-document_chunks_v1}
+      HF_HOME: /model-cache/huggingface
+      HF_HUB_DISABLE_XET: "1"
+    volumes:
+      - embedding_models:/model-cache
     restart: unless-stopped
 
   db:
@@ -62,6 +115,37 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7.4-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.19.1
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/6333'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
+  embedding_models:
   minio_data:
   postgres_data:
+  qdrant_data:
+  redis_data:

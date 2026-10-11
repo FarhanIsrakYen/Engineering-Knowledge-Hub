@@ -3,7 +3,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ApplicationError
+from app.ingestion.queue import IngestionQueue
 from app.storage import ObjectStorage, ObjectStorageError
+from app.vector import VectorStore
 
 
 async def verify_database_connection(session: AsyncSession) -> None:
@@ -36,5 +38,23 @@ async def verify_object_storage(storage: ObjectStorage) -> None:
         raise ApplicationError(
             "Object storage is unavailable",
             code="object_storage_unavailable",
+            status_code=503,
+        )
+
+
+async def verify_ingestion_queue(queue: IngestionQueue) -> None:
+    if not await queue.is_available():
+        raise ApplicationError(
+            "Ingestion queue is unavailable",
+            code="ingestion_queue_unavailable",
+            status_code=503,
+        )
+
+
+async def verify_vector_store(vector_store: VectorStore) -> None:
+    if not await vector_store.is_available():
+        raise ApplicationError(
+            "Vector store is unavailable",
+            code="vector_store_unavailable",
             status_code=503,
         )

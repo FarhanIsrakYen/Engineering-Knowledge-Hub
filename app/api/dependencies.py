@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import AuthenticationError
 from app.db.session import get_db_session
+from app.embeddings import EmbeddingProvider
+from app.ingestion.queue import IngestionQueue
 from app.models.user import User
 from app.services.auth import get_user_for_token
 from app.services.tenancy import (
@@ -20,6 +22,7 @@ from app.services.tenancy import (
     resolve_workspace_context,
 )
 from app.storage import ObjectStorage
+from app.vector import VectorStore
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -80,3 +83,15 @@ async def get_deletable_document_context(
 
 def get_object_storage(request: Request) -> ObjectStorage:
     return request.app.state.object_storage
+
+
+def get_ingestion_queue(request: Request) -> IngestionQueue:
+    return request.app.state.ingestion_queue
+
+
+def get_embedding_provider(request: Request) -> EmbeddingProvider:
+    return request.app.state.embedding_provider
+
+
+def get_vector_store(request: Request) -> VectorStore:
+    return request.app.state.vector_store
