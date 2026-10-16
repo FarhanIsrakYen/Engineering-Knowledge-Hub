@@ -2,6 +2,7 @@ from functools import lru_cache
 from typing import Literal
 
 from pydantic import (
+    Field,
     NonNegativeInt,
     PositiveInt,
     SecretStr,
@@ -41,6 +42,19 @@ class Settings(BaseSettings):
     qdrant_api_key: SecretStr | None = None
     qdrant_collection: str = "document_chunks_v1"
     qdrant_auto_initialize: bool = False
+    retrieval_mode: Literal["vector", "lexical", "hybrid"] = "hybrid"
+    query_rewriting_enabled: bool = False
+    reranking_enabled: bool = True
+    reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
+    reranker_cache_dir: str | None = None
+    rag_candidate_count: int = Field(default=20, ge=1, le=50)
+    rag_default_top_k: int = Field(default=5, ge=1, le=20)
+    llm_api_key: SecretStr | None = None
+    llm_model: str = "gpt-5.5"
+    llm_base_url: str | None = None
+    llm_timeout_seconds: PositiveInt = 30
+    llm_max_output_tokens: PositiveInt = 800
+    rag_min_similarity: float = Field(default=0.5, ge=-1.0, le=1.0)
 
     @field_validator("database_url")
     @classmethod
@@ -63,11 +77,33 @@ class Settings(BaseSettings):
             raise ValueError("redis_url must use the redis or rediss scheme")
         return value
 
-    @field_validator("embedding_model", "qdrant_collection")
+    @field_validator(
+        "embedding_model",
+        "qdrant_collection",
+        "llm_model",
+        "reranker_model",
+    )
     @classmethod
     def require_nonempty_vector_setting(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("vector configuration values cannot be empty")
+        return value
+
+    @field_validator("llm_api_key", mode="before")
+    @classmethod
+    def normalize_empty_llm_api_key(cls, value: object) -> object:
+        return None if value == "" else value
+
+    @field_validator("llm_base_url", mode="before")
+    @classmethod
+    def normalize_empty_llm_base_url(cls, value: object) -> object:
+        return None if value == "" else value
+
+    @field_validator("llm_base_url")
+    @classmethod
+    def require_llm_base_url(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith(("http://", "https://")):
+            raise ValueError("llm_base_url must use the http or https scheme")
         return value
 
     @field_validator("qdrant_url")
@@ -82,6 +118,10 @@ class Settings(BaseSettings):
         if self.document_chunk_overlap >= self.document_chunk_size:
             raise ValueError(
                 "document_chunk_overlap must be smaller than document_chunk_size"
+            )
+        if self.rag_default_top_k > self.rag_candidate_count:
+            raise ValueError(
+                "rag_default_top_k cannot exceed rag_candidate_count"
             )
         return self
 

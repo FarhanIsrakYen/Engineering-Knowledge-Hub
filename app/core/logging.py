@@ -17,6 +17,19 @@ class JsonFormatter(logging.Formatter):
             payload["exception"] = self.formatException(record.exc_info)
         if environment := getattr(record, "environment", None):
             payload["environment"] = environment
+        for field in (
+            "retrieval_mode",
+            "candidate_count",
+            "retrieval_latency_ms",
+            "query_rewrite_latency_ms",
+            "query_retrieval_latency_ms",
+            "rerank_latency_ms",
+            "generation_latency_ms",
+            "query_total_latency_ms",
+            "final_context_count",
+        ):
+            if hasattr(record, field):
+                payload[field] = getattr(record, field)
         return json.dumps(payload, default=str)
 
 
@@ -40,4 +53,3 @@ def configure_logging(log_level: str) -> None:
             },
         }
     )
-

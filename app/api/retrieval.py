@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
@@ -24,6 +24,7 @@ router = APIRouter(tags=["retrieval"])
 )
 async def search_workspace(
     payload: SearchRequest,
+    request: Request,
     context: Annotated[WorkspaceContext, Depends(get_workspace_context)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
     embedding_provider: Annotated[
@@ -36,5 +37,6 @@ async def search_workspace(
         session,
         embedding_provider,
         vector_store,
+        request.app.state.settings.retrieval_mode,
     ).search(context.workspace.id, payload.query, payload.limit)
     return [SearchResultResponse.model_validate(result) for result in results]
