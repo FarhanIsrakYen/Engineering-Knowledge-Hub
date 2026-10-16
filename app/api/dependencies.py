@@ -9,7 +9,9 @@ from app.core.security import AuthenticationError
 from app.db.session import get_db_session
 from app.embeddings import EmbeddingProvider
 from app.ingestion.queue import IngestionQueue
+from app.llm import LLMProvider
 from app.models.user import User
+from app.rag import QueryRewriter, Reranker
 from app.services.auth import get_user_for_token
 from app.services.tenancy import (
     DocumentContext,
@@ -95,3 +97,15 @@ def get_embedding_provider(request: Request) -> EmbeddingProvider:
 
 def get_vector_store(request: Request) -> VectorStore:
     return request.app.state.vector_store
+
+
+def get_llm_provider(request: Request) -> LLMProvider:
+    return request.app.state.llm_provider
+
+
+def get_query_rewriter(request: Request) -> QueryRewriter:
+    return request.app.state.query_rewriter
+
+
+def get_reranker(request: Request) -> Reranker:
+    return request.app.state.reranker

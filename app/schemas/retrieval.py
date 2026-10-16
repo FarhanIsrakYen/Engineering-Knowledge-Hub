@@ -11,6 +11,7 @@ class SearchRequest(BaseModel):
 class SearchResultResponse(BaseModel):
     chunk_id: UUID
     document_id: UUID
+    filename: str
     chunk_index: int
     text: str
     page_number: int | None

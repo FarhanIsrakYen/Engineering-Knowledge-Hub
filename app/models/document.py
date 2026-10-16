@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    literal_column,
     String,
     Text,
     UniqueConstraint,
@@ -94,3 +95,14 @@ class DocumentChunk(Base):
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     section_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     document: Mapped[Document] = relationship(back_populates="chunks")
+
+
+document_chunk_text_search_index = Index(
+    "ix_document_chunks_text_search",
+    func.to_tsvector(
+        literal_column("'english'"),
+        DocumentChunk.__table__.c.text,
+    ),
+    postgresql_using="gin",
+)
+DocumentChunk.__table__.append_constraint(document_chunk_text_search_index)
