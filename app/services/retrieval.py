@@ -1,15 +1,16 @@
 import asyncio
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from time import perf_counter
 from typing import Literal
 from uuid import UUID, uuid5
 
-from sqlalchemy import desc, func, literal_column, select, tuple_
+from sqlalchemy import ColumnElement, desc, func, literal_column, select, tuple_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ApplicationError
+from app.core.metrics import RETRIEVAL_DURATION
 from app.embeddings import EmbeddingProvider, EmbeddingProviderError
 from app.models.document import Document, DocumentChunk
 from app.models.workspace import Workspace
@@ -76,52 +77,58 @@ class RetrievalService:
         started_at = perf_counter()
         selected_mode = mode or self._mode
         self._validate_search(query, limit, selected_mode)
-
-        organization_id = await self._session.scalar(
-            select(Workspace.organization_id).where(Workspace.id == workspace_id)
-        )
-        if organization_id is None:
-            self._log_diagnostics(selected_mode, 0, started_at)
-            return []
-
-        vector_results: list[VectorSearchResult] = []
-        lexical_results: list[LexicalSearchResult] = []
-        if selected_mode == "vector":
-            vector_results = await self._vector_search(
-                organization_id,
-                workspace_id,
-                query,
-                limit,
+        candidate_count = 0
+        try:
+            organization_id = await self._session.scalar(
+                select(Workspace.organization_id).where(
+                    Workspace.id == workspace_id
+                )
             )
-        elif selected_mode == "lexical":
-            lexical_results = await self._lexical_search(
-                workspace_id,
-                query,
-                limit,
-            )
-        else:
-            vector_results, lexical_results = await asyncio.gather(
-                self._vector_search(
+            if organization_id is None:
+                return []
+
+            vector_results: list[VectorSearchResult] = []
+            lexical_results: list[LexicalSearchResult] = []
+            if selected_mode == "vector":
+                vector_results = await self._vector_search(
                     organization_id,
                     workspace_id,
                     query,
                     limit,
-                ),
-                self._lexical_search(workspace_id, query, limit),
-            )
+                )
+            elif selected_mode == "lexical":
+                lexical_results = await self._lexical_search(
+                    workspace_id,
+                    query,
+                    limit,
+                )
+            else:
+                vector_results, lexical_results = await asyncio.gather(
+                    self._vector_search(
+                        organization_id,
+                        workspace_id,
+                        query,
+                        limit,
+                    ),
+                    self._lexical_search(workspace_id, query, limit),
+                )
 
-        candidates = self._rank_candidates(
-            selected_mode,
-            vector_results,
-            lexical_results,
-        )
-        candidate_count = len(candidates)
-        results = await self._hydrate_chunks(
-            workspace_id,
-            candidates[:limit],
-        )
-        self._log_diagnostics(selected_mode, candidate_count, started_at)
-        return results
+            candidates = self._rank_candidates(
+                selected_mode,
+                vector_results,
+                lexical_results,
+            )
+            candidate_count = len(candidates)
+            return await self._hydrate_chunks(
+                workspace_id,
+                candidates[:limit],
+            )
+        finally:
+            self._log_diagnostics(
+                selected_mode,
+                candidate_count,
+                started_at,
+            )
 
     @staticmethod
     def _validate_search(query: str, limit: int, mode: str) -> None:
@@ -172,7 +179,7 @@ class RetrievalService:
         query: str,
         limit: int,
     ) -> list[LexicalSearchResult]:
-        search_config = literal_column("'english'")
+        search_config: ColumnElement[str] = literal_column("'english'")
         search_vector = func.to_tsvector(search_config, DocumentChunk.text)
         search_query = func.websearch_to_tsquery(search_config, query)
         rank = func.ts_rank_cd(search_vector, search_query).label("rank")
@@ -204,11 +211,11 @@ class RetrievalService:
             ) from exc
         return [
             LexicalSearchResult(
-                document_id=document_id,
-                chunk_index=chunk_index,
-                score=float(score),
+                document_id=UUID(str(row.document_id)),
+                chunk_index=int(row.chunk_index),
+                score=float(row.rank),
             )
-            for document_id, chunk_index, score in rows
+            for row in rows
         ]
 
     @staticmethod
@@ -250,12 +257,16 @@ class RetrievalService:
             ]
 
         fused_scores: dict[ChunkIdentity, float] = {}
-        for ranking in (vector_results, lexical_results):
-            for rank, result in enumerate(ranking, start=1):
-                identity = (result.document_id, result.chunk_index)
-                fused_scores[identity] = fused_scores.get(identity, 0.0) + (
-                    1 / (RRF_RANK_CONSTANT + rank)
-                )
+        for rank, vector_result in enumerate(vector_results, start=1):
+            identity = (vector_result.document_id, vector_result.chunk_index)
+            fused_scores[identity] = fused_scores.get(identity, 0.0) + (
+                1 / (RRF_RANK_CONSTANT + rank)
+            )
+        for rank, lexical_result in enumerate(lexical_results, start=1):
+            identity = (lexical_result.document_id, lexical_result.chunk_index)
+            fused_scores[identity] = fused_scores.get(identity, 0.0) + (
+                1 / (RRF_RANK_CONSTANT + rank)
+            )
         ordered = sorted(
             fused_scores,
             key=lambda identity: (
@@ -335,14 +346,13 @@ class RetrievalService:
         candidate_count: int,
         started_at: float,
     ) -> None:
+        duration_ms = round((perf_counter() - started_at) * 1000, 2)
+        RETRIEVAL_DURATION.labels(mode).observe(duration_ms / 1000)
         logger.info(
             "Retrieval completed",
             extra={
                 "retrieval_mode": mode,
                 "candidate_count": candidate_count,
-                "retrieval_latency_ms": round(
-                    (perf_counter() - started_at) * 1000,
-                    2,
-                ),
+                "retrieval_latency_ms": duration_ms,
             },
         )

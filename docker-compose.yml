@@ -29,6 +29,9 @@ services:
       EKH_OBJECT_STORAGE_AUTO_CREATE_BUCKET: "true"
       EKH_DOCUMENT_MAX_UPLOAD_BYTES: ${EKH_DOCUMENT_MAX_UPLOAD_BYTES:-26214400}
       EKH_REDIS_URL: redis://redis:6379/0
+      EKH_QUERY_RATE_LIMIT_REQUESTS: ${EKH_QUERY_RATE_LIMIT_REQUESTS:-30}
+      EKH_QUERY_RATE_LIMIT_WINDOW_SECONDS: ${EKH_QUERY_RATE_LIMIT_WINDOW_SECONDS:-60}
+      EKH_QUERY_EMBEDDING_CACHE_TTL_SECONDS: ${EKH_QUERY_EMBEDDING_CACHE_TTL_SECONDS:-3600}
       EKH_DOCUMENT_CHUNK_SIZE: ${EKH_DOCUMENT_CHUNK_SIZE:-1200}
       EKH_DOCUMENT_CHUNK_OVERLAP: ${EKH_DOCUMENT_CHUNK_OVERLAP:-150}
       EKH_EMBEDDING_MODEL: ${EKH_EMBEDDING_MODEL:-BAAI/bge-small-en-v1.5}
@@ -44,6 +47,7 @@ services:
       EKH_RERANKER_CACHE_DIR: /model-cache
       EKH_RAG_CANDIDATE_COUNT: ${EKH_RAG_CANDIDATE_COUNT:-20}
       EKH_RAG_DEFAULT_TOP_K: ${EKH_RAG_DEFAULT_TOP_K:-5}
+      EKH_CONVERSATION_HISTORY_MESSAGES: ${EKH_CONVERSATION_HISTORY_MESSAGES:-4}
       EKH_LLM_API_KEY: ${EKH_LLM_API_KEY:-}
       EKH_LLM_MODEL: ${EKH_LLM_MODEL:-gpt-5.5}
       EKH_LLM_BASE_URL: ${EKH_LLM_BASE_URL:-}
@@ -54,6 +58,13 @@ services:
       HF_HUB_DISABLE_XET: "1"
     volumes:
       - embedding_models:/model-cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=5)"]
+      interval: 15s
+      timeout: 6s
+      start_period: 30s
+      retries: 5
+    stop_grace_period: 30s
     restart: unless-stopped
 
   worker:
@@ -90,6 +101,13 @@ services:
       HF_HUB_DISABLE_XET: "1"
     volumes:
       - embedding_models:/model-cache
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app:celery_app inspect ping -d celery@$$HOSTNAME --timeout=5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    stop_grace_period: 60s
     restart: unless-stopped
 
   db:

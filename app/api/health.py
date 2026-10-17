@@ -9,6 +9,7 @@ from app.services.readiness import (
     verify_database_connection,
     verify_ingestion_queue,
     verify_object_storage,
+    verify_redis,
     verify_vector_store,
 )
 
@@ -29,6 +30,7 @@ async def readiness_check(
     await verify_object_storage(request.app.state.object_storage)
     await verify_ingestion_queue(request.app.state.ingestion_queue)
     await verify_vector_store(request.app.state.vector_store)
+    await verify_redis(request.app.state.redis)
     return ReadinessResponse(
         status="ready",
         checks={
@@ -36,5 +38,6 @@ async def readiness_check(
             "object_storage": "ok",
             "ingestion_queue": "ok",
             "vector_store": "ok",
+            "redis": "ok",
         },
     )

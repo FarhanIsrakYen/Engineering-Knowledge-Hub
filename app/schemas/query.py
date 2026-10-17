@@ -14,6 +14,17 @@ class QueryRequest(BaseModel):
             raise ValueError("question cannot be empty")
         return value
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "question": "How should database readiness failures be investigated?",
+                    "top_k": 5,
+                }
+            ]
+        }
+    )
+
 
 class QuerySourceResponse(BaseModel):
     document_id: UUID

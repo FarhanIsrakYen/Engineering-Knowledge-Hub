@@ -1,3 +1,5 @@
+from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,3 +60,19 @@ async def verify_vector_store(vector_store: VectorStore) -> None:
             code="vector_store_unavailable",
             status_code=503,
         )
+
+
+async def verify_redis(redis: Redis) -> None:
+    try:
+        if not await redis.ping():
+            raise ApplicationError(
+                "Redis is unavailable",
+                code="redis_unavailable",
+                status_code=503,
+            )
+    except RedisError as exc:
+        raise ApplicationError(
+            "Redis is unavailable",
+            code="redis_unavailable",
+            status_code=503,
+        ) from exc

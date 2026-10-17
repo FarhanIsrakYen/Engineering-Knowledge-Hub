@@ -5,13 +5,14 @@ from uuid import UUID, uuid5
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.metrics import INGESTION_FAILURES, INGESTIONS
+from app.embeddings import EmbeddingProvider, EmbeddingProviderError
 from app.ingestion import (
     DocumentParsingError,
     RecursiveTextChunker,
     TextChunk,
     get_parser,
 )
-from app.embeddings import EmbeddingProvider, EmbeddingProviderError
 from app.models.document import Document, DocumentChunk
 from app.models.workspace import Workspace
 from app.storage import ObjectStorage, ObjectStorageError
@@ -49,6 +50,7 @@ async def ingest_document(
     document = await _mark_processing(session_factory, document_id)
     if document is None:
         return
+    INGESTIONS.labels("started").inc()
 
     vectors_written = False
     try:
@@ -71,7 +73,9 @@ async def ingest_document(
             )
         points = [
             _build_vector_point(document, index, chunk, embedding)
-            for index, (chunk, embedding) in enumerate(zip(chunks, embeddings))
+            for index, (chunk, embedding) in enumerate(
+                zip(chunks, embeddings, strict=True)
+            )
         ]
         await vector_store.replace_document_vectors(document.id, points)
         vectors_written = True
@@ -107,7 +111,7 @@ async def ingest_document(
             "The stored document could not be read",
         )
         raise RuntimeError("Object storage download failed") from exc
-    except Exception as exc:
+    except Exception:
         logger.exception(
             "Unexpected document ingestion failure",
             extra={"document_id": str(document_id)},
@@ -192,6 +196,7 @@ async def _store_chunks(
     document_id: UUID,
     chunks: list[TextChunk],
 ) -> None:
+    stored = False
     async with session_factory() as session, session.begin():
         document = await session.scalar(
             select(Document)
@@ -215,6 +220,9 @@ async def _store_chunks(
         )
         document.status = "ready"
         document.failure_reason = None
+        stored = True
+    if stored:
+        INGESTIONS.labels("ready").inc()
 
 
 async def _mark_failed(
@@ -222,6 +230,7 @@ async def _mark_failed(
     document_id: UUID,
     reason: str,
 ) -> None:
+    failed = False
     async with session_factory() as session, session.begin():
         document = await session.scalar(
             select(Document)
@@ -235,3 +244,7 @@ async def _mark_failed(
         )
         document.status = "failed"
         document.failure_reason = reason[:MAX_FAILURE_REASON_LENGTH]
+        failed = True
+    if failed:
+        INGESTIONS.labels("failed").inc()
+        INGESTION_FAILURES.inc()

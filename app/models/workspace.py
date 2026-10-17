@@ -1,7 +1,16 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, Uuid, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -14,6 +23,12 @@ class Workspace(Base):
             "organization_id",
             "name",
             name="uq_workspaces_organization_id_name",
+        ),
+        Index(
+            "ix_workspaces_organization_created_at",
+            "organization_id",
+            "created_at",
+            "id",
         ),
     )
 

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -8,12 +9,13 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    literal_column,
     String,
+    Table,
     Text,
     UniqueConstraint,
     Uuid,
     func,
+    literal_column,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,7 +31,12 @@ class Document(Base):
         ),
         CheckConstraint("size_bytes > 0", name="ck_documents_size_bytes_positive"),
         UniqueConstraint("storage_key", name="uq_documents_storage_key"),
-        Index("ix_documents_workspace_created_at", "workspace_id", "created_at"),
+        Index(
+            "ix_documents_workspace_created_at",
+            "workspace_id",
+            "created_at",
+            "id",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
@@ -105,4 +112,6 @@ document_chunk_text_search_index = Index(
     ),
     postgresql_using="gin",
 )
-DocumentChunk.__table__.append_constraint(document_chunk_text_search_index)
+cast(Table, DocumentChunk.__table__).append_constraint(
+    document_chunk_text_search_index
+)

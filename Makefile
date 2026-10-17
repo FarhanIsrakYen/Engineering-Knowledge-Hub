@@ -1,4 +1,4 @@
-.PHONY: install run worker test migrate docker-up docker-down
+.PHONY: install run worker lint typecheck test migrate docker-up docker-down
 
 install:
 	python -m pip install -e ".[dev]"
@@ -8,6 +8,12 @@ run:
 
 worker:
 	celery -A app.worker.celery_app:celery_app worker --pool=solo --loglevel=INFO
+
+lint:
+	ruff check .
+
+typecheck:
+	mypy
 
 test:
 	pytest

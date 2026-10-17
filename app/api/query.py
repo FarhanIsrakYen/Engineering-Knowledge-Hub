@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
+    enforce_expensive_query_rate_limit,
     get_embedding_provider,
     get_llm_provider,
     get_query_rewriter,
@@ -16,8 +17,7 @@ from app.embeddings import EmbeddingProvider
 from app.llm import LLMProvider
 from app.rag import QueryRewriter, Reranker
 from app.schemas.query import QueryRequest, QueryResponse
-from app.services.query import QueryService
-from app.services.retrieval import RetrievalService
+from app.services.query import build_query_service
 from app.services.tenancy import WorkspaceContext
 from app.vector import VectorStore
 
@@ -41,24 +41,16 @@ async def query_workspace(
     llm_provider: Annotated[LLMProvider, Depends(get_llm_provider)],
     query_rewriter: Annotated[QueryRewriter, Depends(get_query_rewriter)],
     reranker: Annotated[Reranker, Depends(get_reranker)],
+    _: Annotated[None, Depends(enforce_expensive_query_rate_limit)],
 ) -> QueryResponse:
-    retrieval_service = RetrievalService(
+    result = await build_query_service(
         session,
         embedding_provider,
         vector_store,
-        request.app.state.settings.retrieval_mode,
-    )
-    result = await QueryService(
-        retrieval_service,
         llm_provider,
-        request.app.state.settings.rag_min_similarity,
         query_rewriter,
         reranker,
-        rewriting_enabled=(
-            request.app.state.settings.query_rewriting_enabled
-        ),
-        reranking_enabled=request.app.state.settings.reranking_enabled,
-        candidate_count=request.app.state.settings.rag_candidate_count,
+        request.app.state.settings,
     ).query(
         context.workspace.id,
         payload.question,
