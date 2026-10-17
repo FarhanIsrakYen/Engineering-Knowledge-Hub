@@ -5,21 +5,29 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import ApplicationError
 from app.core.security import AuthenticationError
 from app.db.session import get_db_session
 from app.embeddings import EmbeddingProvider
+from app.evaluation import AnswerEvaluator
 from app.ingestion.queue import IngestionQueue
 from app.llm import LLMProvider
 from app.models.user import User
 from app.rag import QueryRewriter, Reranker
+from app.schemas.evaluation import EvaluationCreate
 from app.services.auth import get_user_for_token
+from app.services.rate_limit import RateLimiter
 from app.services.tenancy import (
+    ConversationContext,
     DocumentContext,
+    EvaluationContext,
     OrganizationContext,
     WorkspaceContext,
     require_document_delete_role,
     require_management_role,
+    resolve_conversation_context,
     resolve_document_context,
+    resolve_evaluation_context,
     resolve_organization_context,
     resolve_workspace_context,
 )
@@ -77,6 +85,38 @@ async def get_document_context(
     return await resolve_document_context(session, document_id, user.id)
 
 
+async def get_conversation_context(
+    conversation_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> ConversationContext:
+    return await resolve_conversation_context(
+        session,
+        conversation_id,
+        user.id,
+    )
+
+
+async def get_evaluation_workspace_context(
+    payload: EvaluationCreate,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> WorkspaceContext:
+    return await resolve_workspace_context(
+        session,
+        payload.workspace_id,
+        user.id,
+    )
+
+
+async def get_evaluation_context(
+    run_id: UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> EvaluationContext:
+    return await resolve_evaluation_context(session, run_id, user.id)
+
+
 async def get_deletable_document_context(
     context: Annotated[DocumentContext, Depends(get_document_context)],
 ) -> DocumentContext:
@@ -109,3 +149,27 @@ def get_query_rewriter(request: Request) -> QueryRewriter:
 
 def get_reranker(request: Request) -> Reranker:
     return request.app.state.reranker
+
+
+def get_answer_evaluator(request: Request) -> AnswerEvaluator:
+    return request.app.state.answer_evaluator
+
+
+async def enforce_expensive_query_rate_limit(
+    request: Request,
+    user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    settings = request.app.state.settings
+    limiter: RateLimiter = request.app.state.rate_limiter
+    result = await limiter.check(
+        f"rag-query:{user.id}",
+        settings.query_rate_limit_requests,
+        settings.query_rate_limit_window_seconds,
+    )
+    if not result.allowed:
+        raise ApplicationError(
+            "Query rate limit exceeded",
+            code="rate_limit_exceeded",
+            status_code=429,
+            headers={"Retry-After": str(result.retry_after_seconds)},
+        )

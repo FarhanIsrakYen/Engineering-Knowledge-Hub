@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import (
+    enforce_expensive_query_rate_limit,
     get_embedding_provider,
     get_vector_store,
     get_workspace_context,
@@ -32,6 +33,7 @@ async def search_workspace(
         Depends(get_embedding_provider),
     ],
     vector_store: Annotated[VectorStore, Depends(get_vector_store)],
+    _: Annotated[None, Depends(enforce_expensive_query_rate_limit)],
 ) -> list[SearchResultResponse]:
     results = await RetrievalService(
         session,

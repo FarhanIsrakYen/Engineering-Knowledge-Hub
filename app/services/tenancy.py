@@ -5,7 +5,9 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ApplicationError
+from app.models.conversation import Conversation
 from app.models.document import Document
+from app.models.evaluation import EvaluationRun
 from app.models.organization import Organization, OrganizationMember
 from app.models.workspace import Workspace
 
@@ -25,6 +27,18 @@ class WorkspaceContext:
 @dataclass(frozen=True, slots=True)
 class DocumentContext:
     document: Document
+    membership: OrganizationMember
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationContext:
+    conversation: Conversation
+    membership: OrganizationMember
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationContext:
+    run: EvaluationRun
     membership: OrganizationMember
 
 
@@ -115,6 +129,63 @@ async def resolve_document_context(
             status_code=404,
         )
     return DocumentContext(document=row[0], membership=row[1])
+
+
+async def resolve_conversation_context(
+    session: AsyncSession,
+    conversation_id: UUID,
+    user_id: UUID,
+) -> ConversationContext:
+    result = await session.execute(
+        select(Conversation, OrganizationMember)
+        .join(Workspace, Workspace.id == Conversation.workspace_id)
+        .join(
+            OrganizationMember,
+            and_(
+                OrganizationMember.organization_id == Workspace.organization_id,
+                OrganizationMember.user_id == user_id,
+            ),
+        )
+        .where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user_id,
+        )
+    )
+    row = result.one_or_none()
+    if row is None:
+        raise ApplicationError(
+            "Conversation not found",
+            code="conversation_not_found",
+            status_code=404,
+        )
+    return ConversationContext(conversation=row[0], membership=row[1])
+
+
+async def resolve_evaluation_context(
+    session: AsyncSession,
+    run_id: UUID,
+    user_id: UUID,
+) -> EvaluationContext:
+    result = await session.execute(
+        select(EvaluationRun, OrganizationMember)
+        .join(Workspace, Workspace.id == EvaluationRun.workspace_id)
+        .join(
+            OrganizationMember,
+            and_(
+                OrganizationMember.organization_id == Workspace.organization_id,
+                OrganizationMember.user_id == user_id,
+            ),
+        )
+        .where(EvaluationRun.id == run_id)
+    )
+    row = result.one_or_none()
+    if row is None:
+        raise ApplicationError(
+            "Evaluation run not found",
+            code="evaluation_run_not_found",
+            status_code=404,
+        )
+    return EvaluationContext(run=row[0], membership=row[1])
 
 
 def require_document_delete_role(context: DocumentContext) -> DocumentContext:

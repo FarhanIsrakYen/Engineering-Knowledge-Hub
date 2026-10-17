@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     object_storage_auto_create_bucket: bool = False
     document_max_upload_bytes: PositiveInt = 25 * 1024 * 1024
     redis_url: str = "redis://localhost:6379/0"
+    query_rate_limit_requests: PositiveInt = 30
+    query_rate_limit_window_seconds: PositiveInt = 60
+    query_embedding_cache_ttl_seconds: NonNegativeInt = 3600
     document_chunk_size: PositiveInt = 1200
     document_chunk_overlap: NonNegativeInt = 150
     embedding_model: str = "BAAI/bge-small-en-v1.5"
@@ -49,6 +52,7 @@ class Settings(BaseSettings):
     reranker_cache_dir: str | None = None
     rag_candidate_count: int = Field(default=20, ge=1, le=50)
     rag_default_top_k: int = Field(default=5, ge=1, le=20)
+    conversation_history_messages: int = Field(default=4, ge=2, le=20)
     llm_api_key: SecretStr | None = None
     llm_model: str = "gpt-5.5"
     llm_base_url: str | None = None
@@ -123,6 +127,21 @@ class Settings(BaseSettings):
             raise ValueError(
                 "rag_default_top_k cannot exceed rag_candidate_count"
             )
+        if self.conversation_history_messages % 2 != 0:
+            raise ValueError(
+                "conversation_history_messages must contain complete turns"
+            )
+        if self.environment == "production":
+            if self.debug:
+                raise ValueError("debug cannot be enabled in production")
+            if (
+                self.object_storage_access_key == "minioadmin"
+                or self.object_storage_secret_key.get_secret_value()
+                == "minioadmin"
+            ):
+                raise ValueError(
+                    "default object storage credentials cannot be used in production"
+                )
         return self
 
     model_config = SettingsConfigDict(
@@ -136,4 +155,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    # BaseSettings supplies required values from configured settings sources.
+    return Settings()  # type: ignore[call-arg]

@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+
 from openai import AsyncOpenAI, OpenAIError
 
 from app.llm.base import LLMProviderError
@@ -51,6 +53,41 @@ class OpenAILLMProvider:
         if not answer:
             raise LLMProviderError("The LLM provider returned an empty response")
         return answer
+
+    async def stream(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> AsyncIterator[str]:
+        if not self._api_key:
+            raise LLMProviderError("The LLM provider is not configured")
+
+        if self._client is None:
+            self._client = AsyncOpenAI(
+                api_key=self._api_key,
+                base_url=self._base_url,
+                timeout=self._timeout_seconds,
+            )
+
+        stream = None
+        try:
+            stream = await self._client.responses.create(
+                model=self._model,
+                instructions=system_prompt,
+                input=user_prompt,
+                max_output_tokens=self._max_output_tokens,
+                store=False,
+                stream=True,
+            )
+            async for event in stream:
+                if event.type == "response.output_text.delta":
+                    yield event.delta
+        except OpenAIError as exc:
+            raise LLMProviderError("The LLM provider request failed") from exc
+        finally:
+            if stream is not None:
+                await stream.close()
 
     async def close(self) -> None:
         if self._client is not None:

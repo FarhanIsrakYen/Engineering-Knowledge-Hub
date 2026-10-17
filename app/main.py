@@ -1,16 +1,24 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-import logging
 
 from fastapi import FastAPI
+from redis.asyncio import Redis
 
 from app.api.health import router as health_router
+from app.api.metrics import router as metrics_router
 from app.api.router import api_router
 from app.core.config import Settings, get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
+from app.core.middleware import RequestObservabilityMiddleware
 from app.db.session import create_database_engine, create_session_factory
-from app.embeddings import EmbeddingProvider, FastEmbedEmbeddingProvider
+from app.embeddings import (
+    CachedQueryEmbeddingProvider,
+    EmbeddingProvider,
+    FastEmbedEmbeddingProvider,
+)
+from app.evaluation import AnswerEvaluator, LLMAnswerEvaluator
 from app.ingestion.queue import CeleryIngestionQueue, IngestionQueue
 from app.llm import LLMProvider, OpenAILLMProvider
 from app.rag import (
@@ -19,6 +27,7 @@ from app.rag import (
     QueryRewriter,
     Reranker,
 )
+from app.services.rate_limit import RateLimiter, RedisRateLimiter
 from app.storage import ObjectStorage, S3ObjectStorage
 from app.vector import QdrantVectorStore, VectorStore
 
@@ -34,6 +43,9 @@ def create_app(
     llm_provider: LLMProvider | None = None,
     query_rewriter: QueryRewriter | None = None,
     reranker: Reranker | None = None,
+    redis_client: Redis | None = None,
+    rate_limiter: RateLimiter | None = None,
+    answer_evaluator: AnswerEvaluator | None = None,
 ) -> FastAPI:
     app_settings = settings or get_settings()
     configure_logging(app_settings.log_level)
@@ -49,11 +61,25 @@ def create_app(
             region=app_settings.object_storage_region,
         )
         queue = ingestion_queue or CeleryIngestionQueue(app_settings.redis_url)
-        embedder = embedding_provider or FastEmbedEmbeddingProvider(
-            app_settings.embedding_model,
-            app_settings.embedding_dimensions,
-            app_settings.embedding_cache_dir,
+        redis = redis_client or Redis.from_url(
+            app_settings.redis_url,
+            decode_responses=True,
         )
+        embedder: EmbeddingProvider
+        if embedding_provider is None:
+            embedder = CachedQueryEmbeddingProvider(
+                FastEmbedEmbeddingProvider(
+                    app_settings.embedding_model,
+                    app_settings.embedding_dimensions,
+                    app_settings.embedding_cache_dir,
+                ),
+                redis,
+                app_settings.embedding_model,
+                app_settings.embedding_dimensions,
+                app_settings.query_embedding_cache_ttl_seconds,
+            )
+        else:
+            embedder = embedding_provider
         vectors = vector_store or QdrantVectorStore(
             url=app_settings.qdrant_url,
             api_key=(
@@ -92,6 +118,11 @@ def create_app(
         application.state.llm_provider = llm
         application.state.query_rewriter = rewriter
         application.state.reranker = ranker
+        application.state.redis = redis
+        application.state.rate_limiter = rate_limiter or RedisRateLimiter(redis)
+        application.state.answer_evaluator = (
+            answer_evaluator or LLMAnswerEvaluator(llm)
+        )
         try:
             if app_settings.object_storage_auto_create_bucket:
                 await storage.ensure_bucket()
@@ -126,7 +157,10 @@ def create_app(
                                     try:
                                         await storage.close()
                                     finally:
-                                        await engine.dispose()
+                                        try:
+                                            await redis.aclose()
+                                        finally:
+                                            await engine.dispose()
             logger.info("Application stopped")
 
     application = FastAPI(
@@ -136,7 +170,9 @@ def create_app(
         lifespan=lifespan,
     )
     application.state.settings = app_settings
+    application.add_middleware(RequestObservabilityMiddleware)
     application.include_router(health_router, include_in_schema=False)
+    application.include_router(metrics_router)
     application.include_router(api_router, prefix="/api/v1")
     register_exception_handlers(application)
     return application

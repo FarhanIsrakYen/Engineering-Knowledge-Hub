@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,7 @@ from app.schemas.organization import (
     OrganizationMemberAdd,
     OrganizationMemberResponse,
     OrganizationResponse,
+    OrganizationRole,
 )
 from app.schemas.workspace import WorkspaceCreate, WorkspaceResponse
 from app.services.organizations import (
@@ -77,7 +78,7 @@ async def add_member(
         user_id=membership.user_id,
         email=user.email,
         display_name=user.display_name,
-        role=membership.role,
+        role=cast(OrganizationRole, membership.role),
     )
 
 
