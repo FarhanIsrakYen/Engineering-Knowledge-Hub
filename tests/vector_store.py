@@ -80,7 +80,7 @@ class InMemoryVectorStore:
 
     @staticmethod
     def _cosine(left: list[float], right: list[float]) -> float:
-        numerator = sum(a * b for a, b in zip(left, right))
+        numerator = sum(a * b for a, b in zip(left, right, strict=True))
         left_size = math.sqrt(sum(value * value for value in left))
         right_size = math.sqrt(sum(value * value for value in right))
         return numerator / (left_size * right_size)

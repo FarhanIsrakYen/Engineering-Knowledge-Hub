@@ -1,12 +1,12 @@
 import asyncio
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from io import BytesIO
-import os
 from uuid import UUID, uuid4
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -17,9 +17,9 @@ from app.ingestion.parsers import DocumentParsingError, get_parser
 from app.main import create_app
 from app.models.document import Document, DocumentChunk
 from app.services.ingestion import ingest_document
+from tests.embeddings import DeterministicEmbeddingProvider
 from tests.queue import InMemoryIngestionQueue
 from tests.storage import InMemoryObjectStorage
-from tests.embeddings import DeterministicEmbeddingProvider
 from tests.vector_store import InMemoryVectorStore
 
 
