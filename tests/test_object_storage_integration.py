@@ -1,6 +1,6 @@
 import asyncio
-from io import BytesIO
 import os
+from io import BytesIO
 from uuid import uuid4
 
 import pytest

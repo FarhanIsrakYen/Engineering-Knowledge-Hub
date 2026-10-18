@@ -7,13 +7,13 @@ from app.main import create_app
 
 def test_settings_use_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EKH_APP_NAME", "Configured Hub")
-    monkeypatch.setenv("EKH_ENVIRONMENT", "production")
+    monkeypatch.setenv("EKH_ENVIRONMENT", "staging")
     monkeypatch.setenv("EKH_DEBUG", "true")
 
     settings = Settings(_env_file=None)
 
     assert settings.app_name == "Configured Hub"
-    assert settings.environment == "production"
+    assert settings.environment == "staging"
     assert settings.debug is True
 
 
@@ -86,3 +86,105 @@ def test_vector_settings_use_environment_variables(
     assert settings.embedding_model == "custom/model"
     assert settings.embedding_dimensions == 768
     assert settings.qdrant_collection == "custom_chunks"
+
+
+def test_rag_settings_use_environment_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EKH_LLM_MODEL", "custom-llm")
+    monkeypatch.setenv("EKH_RAG_MIN_SIMILARITY", "0.72")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.llm_model == "custom-llm"
+    assert settings.rag_min_similarity == 0.72
+
+
+def test_settings_reject_invalid_rag_similarity() -> None:
+    with pytest.raises(ValidationError):
+        Settings(rag_min_similarity=1.1, _env_file=None)
+
+
+def test_retrieval_mode_defaults_to_hybrid() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.retrieval_mode == "hybrid"
+
+
+def test_retrieval_mode_uses_environment_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EKH_RETRIEVAL_MODE", "lexical")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.retrieval_mode == "lexical"
+
+
+def test_settings_reject_unknown_retrieval_mode() -> None:
+    with pytest.raises(ValidationError):
+        Settings(retrieval_mode="weighted", _env_file=None)
+
+
+def test_rag_pipeline_settings_use_environment_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EKH_QUERY_REWRITING_ENABLED", "true")
+    monkeypatch.setenv("EKH_RERANKING_ENABLED", "false")
+    monkeypatch.setenv("EKH_RAG_CANDIDATE_COUNT", "30")
+    monkeypatch.setenv("EKH_RAG_DEFAULT_TOP_K", "8")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.query_rewriting_enabled is True
+    assert settings.reranking_enabled is False
+    assert settings.rag_candidate_count == 30
+    assert settings.rag_default_top_k == 8
+
+
+def test_candidate_count_must_cover_default_top_k() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            rag_candidate_count=4,
+            rag_default_top_k=5,
+            _env_file=None,
+        )
+
+
+def test_conversation_history_window_uses_environment_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EKH_CONVERSATION_HISTORY_MESSAGES", "6")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.conversation_history_messages == 6
+
+
+def test_conversation_history_window_requires_complete_turns() -> None:
+    with pytest.raises(ValidationError):
+        Settings(conversation_history_messages=3, _env_file=None)
+
+
+def test_operational_settings_use_environment_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EKH_QUERY_RATE_LIMIT_REQUESTS", "12")
+    monkeypatch.setenv("EKH_QUERY_RATE_LIMIT_WINDOW_SECONDS", "90")
+    monkeypatch.setenv("EKH_QUERY_EMBEDDING_CACHE_TTL_SECONDS", "600")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.query_rate_limit_requests == 12
+    assert settings.query_rate_limit_window_seconds == 90
+    assert settings.query_embedding_cache_ttl_seconds == 600
+
+
+def test_production_rejects_debug_mode() -> None:
+    with pytest.raises(ValidationError, match="debug cannot be enabled"):
+        Settings(environment="production", debug=True, _env_file=None)
+
+
+def test_production_rejects_default_object_storage_credentials() -> None:
+    with pytest.raises(ValidationError, match="default object storage credentials"):
+        Settings(environment="production", _env_file=None)

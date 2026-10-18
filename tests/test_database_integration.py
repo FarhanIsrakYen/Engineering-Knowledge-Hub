@@ -1,13 +1,13 @@
-from collections.abc import Iterator
 import os
+from collections.abc import Iterator
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app
-from tests.storage import InMemoryObjectStorage
 from tests.queue import InMemoryIngestionQueue
+from tests.storage import InMemoryObjectStorage
 from tests.vector_store import InMemoryVectorStore
 
 
@@ -45,5 +45,6 @@ def test_readiness_connects_to_postgresql(database_client: TestClient) -> None:
             "object_storage": "ok",
             "ingestion_queue": "ok",
             "vector_store": "ok",
+            "redis": "ok",
         },
     }

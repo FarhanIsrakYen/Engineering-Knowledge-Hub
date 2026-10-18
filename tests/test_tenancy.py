@@ -1,9 +1,9 @@
-from collections.abc import Iterator
 import os
+from collections.abc import Iterator
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app

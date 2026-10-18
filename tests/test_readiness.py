@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, Mock
 
@@ -6,11 +7,28 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.exceptions import ApplicationError
 from app.db.session import get_db_session
 from app.main import create_app
-from tests.storage import InMemoryObjectStorage
+from app.services.readiness import verify_redis
 from tests.queue import InMemoryIngestionQueue
+from tests.storage import InMemoryObjectStorage
 from tests.vector_store import InMemoryVectorStore
+
+
+class UnavailableRedis:
+    async def ping(self) -> bool:
+        return False
+
+
+def test_redis_readiness_failure_is_explicit() -> None:
+    try:
+        asyncio.run(verify_redis(UnavailableRedis()))  # type: ignore[arg-type]
+    except ApplicationError as exc:
+        assert exc.code == "redis_unavailable"
+        assert exc.status_code == 503
+    else:
+        raise AssertionError("Expected Redis readiness to fail")
 
 
 def test_readiness_returns_service_unavailable_when_database_fails() -> None:
